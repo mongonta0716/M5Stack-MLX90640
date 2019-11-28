@@ -29,9 +29,13 @@
 */
 #include <M5Stack.h>
 #include <Wire.h>
+#include <M5StackUpdater.h>
 
 #include "MLX90640_API.h"
 #include "MLX90640_I2C_Driver.h"
+
+#include <WiFi.h>
+#include <time.h>
 
 const byte MLX90640_address = 0x33; //Default 7-bit unshifted address of the MLX90640
 #define TA_SHIFT 8 //Default shift for MLX90640 in open air
@@ -41,14 +45,32 @@ const byte MLX90640_address = 0x33; //Default 7-bit unshifted address of the MLX
 #define COLS_2 (COLS * 2)
 #define ROWS_2 (ROWS * 2)
 
+// -------------------------------------------------
+// Initial Settings
+// -------------------------------------------------
+
+// *** Set your WiFi Settings ***
+// If you are launching from M5Stack LovyanLauncher, WiFi settings are not required.
+// https://github.com/lovyan03/M5Stack_LovyanLauncher
+const char* ssid      = "";
+const char* pass      = "";
+
+// *** Set your NTP Server ***
+const char* ntpServer = "ntp.jst.mfeed.ad.jp";
+
+// -------------------------------------------------
+// End of Initial Settings
+// -------------------------------------------------
+
+
 float pixelsArraySize = COLS * ROWS;
 float pixels[COLS * ROWS];
 float pixels_2[COLS_2 * ROWS_2];
 float reversePixels[COLS * ROWS];
 
-byte speed_setting = 2 ; // High is 1 , Low is 2
-bool reverseScreen = false;
-//bool reverseScreen = true;
+byte speed_setting = 1 ; // High is 1 , Low is 2
+// bool reverseScreen = false;
+bool reverseScreen = true;
 
 #define INTERPOLATED_COLS 32
 #define INTERPOLATED_ROWS 32
@@ -117,12 +139,22 @@ void setup()
   M5.begin();
   M5.Power.begin();
   Wire.begin();
+  if(digitalRead(BUTTON_A_PIN) == 0) {
+    Serial.println("Will Load menu binary");
+    updateFromFS(SD);
+    ESP.restart();
+  }
+  M5.ScreenShot.begin();
   Wire.setClock(450000); //Increase I2C clock speed to 400kHz
   Serial.begin(115200);
   M5.Lcd.begin();
   M5.Lcd.setRotation(1);
 
   M5.Lcd.fillScreen(TFT_BLACK);
+
+  // for ScreenShot
+  adjustClockfromNTP();
+  
   M5.Lcd.setTextColor(YELLOW, BLACK);
 
   while (!Serial); //Wait for user to open terminal
@@ -200,24 +232,20 @@ void loop()
     infodisplay();
   }
 
+  ////////////////
+  // ScreenShot //
+  ////////////////
+  if (M5.BtnB.wasPressed()) {
+    M5.ScreenShot.snap("Thermal");
+  }
+
   /////////////////////
   // Reset settings  //
   /////////////////////
-  if (M5.BtnB.wasPressed()) {
+  if (M5.BtnA.isPressed() && M5.BtnC.isPressed()) {
     MINTEMP = min_v - 1;
     MAXTEMP = max_v + 1;
     infodisplay();
-  }
-
-  ////////////////
-  // Power Off  //
-  ////////////////
-  if (M5.BtnB.pressedFor(1000)) {
-    M5.Lcd.fillScreen(TFT_BLACK);
-    M5.Lcd.setTextColor(YELLOW, BLACK);
-    M5.Lcd.drawCentreString("Power Off...", 160, 80, 4);
-    delay(1000);
-    M5.powerOFF();
   }
 
   ///////////////////////////////
@@ -267,6 +295,10 @@ void loop()
     float tr = Ta - TA_SHIFT; //Reflected temperature based on the sensor ambient temperature
     float emissivity = 0.95;
     MLX90640_CalculateTo(mlx90640Frame, &mlx90640, emissivity, tr, pixels); //save pixels temp to array (pixels)
+	int mode_ = MLX90640_GetCurMode(MLX90640_address);
+    //amendment
+    MLX90640_BadPixelsCorrection((&mlx90640)->brokenPixels, pixels, mode_, &mlx90640);
+    //MLX90640_BadPixelsCorrection((&mlx90640)->outlierPixels, pixels, mode_, &mlx90640);
   }
 
   //Reverse image (order of Integer array)
@@ -369,9 +401,7 @@ void loop()
   drawpixels(dest_2d, INTERPOLATED_ROWS, INTERPOLATED_COLS, boxWidth, boxHeight, false);
   max_v = MINTEMP;
   min_v = MAXTEMP;
-  int spot_v = pixels[360];
-  spot_v = pixels[768/2];
-//while(1);
+  int spot_v = pixels[463]; // 32pixel * (15rows - 1) + (16cols - 1)
   
    for ( int itemp = 0; itemp < sizeof(pixels) / sizeof(pixels[0]); itemp++ )
   {
@@ -405,15 +435,15 @@ void loop()
   }
   else
   {
-    M5.Lcd.printf("Min:", 1);
+    M5.Lcd.print("Min:");
     M5.Lcd.print(min_v, 1);
-    M5.Lcd.printf("C  " , 1);
-    M5.Lcd.printf("Max:", 1);
+    M5.Lcd.print("C  ");
+    M5.Lcd.print("Max:");
     M5.Lcd.print(max_v, 1);
-    M5.Lcd.printf("C" , 1);
+    M5.Lcd.print("C");
     M5.Lcd.setCursor(180, 94); // update spot temp text
     M5.Lcd.print(spot_v, 1);
-    M5.Lcd.printf("C" , 1);
+    M5.Lcd.printf("C");
     //M5.Lcd.drawCircle(160, 100, 6, TFT_WHITE);     // update center spot icon
     //M5.Lcd.drawLine(160, 90, 160, 110, TFT_WHITE); // vertical line
     //M5.Lcd.drawLine(150, 100, 170, 100, TFT_WHITE); // horizontal line
@@ -442,11 +472,11 @@ void infodisplay(void) {
   M5.Lcd.setTextSize(2);
   M5.Lcd.setCursor(284, 222); //move to bottom right
   M5.Lcd.print(MAXTEMP , 1);  // update MAXTEMP
-  M5.Lcd.printf("C" , 1);
+  M5.Lcd.print("C");
   M5.Lcd.setCursor(0, 222);  // update MINTEMP text
   M5.Lcd.fillRect(0, 222, 36, 16, TFT_BLACK);
   M5.Lcd.print(MINTEMP , 1);
-  M5.Lcd.printf("C" , 1);
+  M5.Lcd.print("C");
   M5.Lcd.setCursor(106, 224);
 }
 
@@ -472,6 +502,31 @@ void drawpixels(float *p, uint8_t rows, uint8_t cols, uint8_t boxWidth, uint8_t 
       M5.Lcd.fillRect(boxWidth * x, boxHeight * y, boxWidth, boxHeight, camColors[colorIndex]);
     }
   }
+
+  int grX = 4;
+  int grY = 4;
+  
+   for (int y = 0; y < rows; y++) 
+    {
+      for (int x = 0; x < cols; x++) 
+        {
+                float val = 0;
+                if (((x%grX) == 0) && ((y%grY)==0))   
+                 {
+                for (int grx=0;grx<grX;grx++)
+                  for (int gry=0;gry<grY;gry++)
+                    {
+                      val += get_point(p, (rows), (cols), (x+grx), (y+gry));
+                    }
+                    val = (val)/(grX*grY);
+                 
+                  M5.Lcd.setCursor((boxWidth *x)+((boxWidth*grX)/3) + 2, (boxHeight *y)+((boxHeight*grY)/3) + 2); // update spot temp text
+                  M5.Lcd.print(val, 0);
+                  M5.Lcd.fillCircle((boxWidth *x)+((boxWidth*grX)/3), (boxHeight *y)+((boxHeight*grY)/3), 1, TFT_BLACK);
+                 }
+        }
+    } 
+
 }
 
 //Returns true if the MLX90640 is detected on the I2C bus
@@ -481,4 +536,46 @@ boolean isConnected()
   if (Wire.endTransmission() != 0)
     return (false); //Sensor did not ACK
   return (true);
+}
+
+void adjustClockfromNTP() {
+  M5.Lcd.fillScreen(TFT_BLACK);
+  M5.Lcd.setCursor(0, 0);
+  M5.Lcd.setTextSize(2);
+  if (!strcmp(ssid,"")) {
+    M5.Lcd.println("Connecting to the previous WiFiAP.");
+    M5.Lcd.println("If you don't connect to WiFi. Check ImageWatch.ino");
+    WiFi.begin();
+  } else {
+    M5.Lcd.printf("Connentng to SSID:%s\n", ssid);
+    WiFi.begin(ssid, pass);
+  }
+  M5.Lcd.println("Button A: Skip Time Setting");
+  while (WiFi.status() != WL_CONNECTED) {
+    M5.update();
+    if (M5.BtnA.wasPressed()) {
+      WiFi.disconnect(true);
+      WiFi.mode(WIFI_OFF);
+      return;
+    }
+    M5.Lcd.print(".");
+    delay(500);
+  }
+  M5.Lcd.println("\nWiFi connected");
+  
+  configTime(9 * 3600, 0, ntpServer);
+  struct tm timeinfo;
+
+  M5.Lcd.println("Get Time from NTP");
+  while (!getLocalTime(&timeinfo)) {
+    M5.Lcd.print(".");
+    delay(1000);
+  }
+
+  M5.Lcd.setTextSize(3);
+  M5.Lcd.println("Time adjusted");
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  delay(2000);
+
 }
