@@ -49,29 +49,30 @@ const byte MLX90640_address = 0x33; //Default 7-bit unshifted address of the MLX
 // Initial Settings
 // -------------------------------------------------
 
-// *** Set your WiFi Settings ***
+// *** Set your WiFi Settings. ***
 // If you are launching from M5Stack LovyanLauncher, WiFi settings are not required.
 // https://github.com/lovyan03/M5Stack_LovyanLauncher
 const char* ssid      = "";
 const char* pass      = "";
-
-// *** Set your NTP Server ***
 const char* ntpServer = "ntp.jst.mfeed.ad.jp";
 
+bool reverseScreen = true;
+byte speed_setting = 2 ; // High is 1 , Low is 2
 // -------------------------------------------------
 // End of Initial Settings
 // -------------------------------------------------
-
+bool autoCapture = false;
+uint16_t autoCaptureInterval = 30000; // msec
+long autoCaptureTargetTime;
 
 float pixelsArraySize = COLS * ROWS;
 float pixels[COLS * ROWS];
 float pixels_2[COLS_2 * ROWS_2];
 float reversePixels[COLS * ROWS];
 
-byte speed_setting = 1 ; // High is 1 , Low is 2
-// bool reverseScreen = false;
-bool reverseScreen = true;
 
+// #define INTERPOLATED_COLS 32
+// #define INTERPOLATED_ROWS 32
 #define INTERPOLATED_COLS 32
 #define INTERPOLATED_ROWS 32
 
@@ -80,13 +81,13 @@ paramsMLX90640 mlx90640;
 float signedMag12ToFloat(uint16_t val);
 
 //low range of the sensor (this will be blue on the screen)
-int MINTEMP = 24; // For color mapping
+int MINTEMP = 20; // For color mapping
 int min_v = 24; //Value of current min temp
 int min_cam_v = -40; // Spec in datasheet
 
 
 //high range of the sensor (this will be red on the screen)
-int MAXTEMP = 35; // For color mapping
+int MAXTEMP = 50; // For color mapping
 int max_v = 35; //Value of current max temp
 int max_cam_v = 300; // Spec in datasheet
 int resetMaxTemp = 45;
@@ -200,8 +201,17 @@ void setup()
 
 void loop()
 {
+  M5.update();
   loopTime = millis();
   startTime = loopTime;
+  if (autoCapture) {
+    if ((millis() - autoCaptureTargetTime) > autoCaptureInterval) {
+      M5.ScreenShot.snap("Thermal_Auto");
+      autoCaptureTargetTime = millis();
+    }
+  }
+
+  
   ///////////////////////////////
   // Set Min Value - LongPress //
   ///////////////////////////////
@@ -220,28 +230,53 @@ void loop()
   ///////////////////////////////
   // Set Min Value - SortPress //
   ///////////////////////////////
+//  if (M5.BtnA.wasPressed()) {
+//    if (MINTEMP <= 0)
+//    {
+//      MINTEMP = MAXTEMP - 1;
+//    }
+//    else
+//    {
+//      MINTEMP--;
+//    }
+//    infodisplay();
+//  }
+
+  ///////////////////////////
+  // AutoCapture switch    //
+  ///////////////////////////
+//  if (M5.BtnA.isPressed() && M5.BtnB.isPressed()) {
   if (M5.BtnA.wasPressed()) {
-    if (MINTEMP <= 0)
-    {
-      MINTEMP = MAXTEMP - 1;
+    if (autoCapture) {
+      autoCapture = false;
+      infodisplay();
+    } else {
+      autoCapture = true;
+      autoCaptureTargetTime = millis();
+      infodisplay();
+      M5.ScreenShot.snap("Thermal_Auto");
     }
-    else
-    {
-      MINTEMP--;
-    }
+  }
+
+  ///////////////////////////////
+  // Set Default Value - LongPress //
+  ///////////////////////////////
+  if (M5.BtnB.pressedFor(3000)) {
+    MINTEMP = 20;
+    MAXTEMP = 50;
     infodisplay();
   }
-
-  ////////////////
-  // ScreenShot //
-  ////////////////
-  if (M5.BtnB.wasPressed()) {
-    M5.ScreenShot.snap("Thermal");
+  ////////////////////////
+  // ScreenShot(Manual) //
+  ////////////////////////
+  if (M5.BtnB.wasPressed() && !M5.BtnA.isPressed()) {
+    M5.ScreenShot.snap("Thermal_Manual");
   }
 
-  /////////////////////
-  // Reset settings  //
-  /////////////////////
+
+  /////////////////////////////
+  // Reset MINTEMP & MAXTEMP //
+  /////////////////////////////
   if (M5.BtnA.isPressed() && M5.BtnC.isPressed()) {
     MINTEMP = min_v - 1;
     MAXTEMP = max_v + 1;
@@ -266,19 +301,18 @@ void loop()
   ///////////////////////////////
   // Set Max Value - SortPress //
   ///////////////////////////////
-  if (M5.BtnC.wasPressed()) {
-    if (MAXTEMP >= max_cam_v )
-    {
-      MAXTEMP = MINTEMP + 1;
-    }
-    else
-    {
-      MAXTEMP++;
-    }
-    infodisplay();
-  }
+//  if (M5.BtnC.wasPressed()) {
+//    if (MAXTEMP >= max_cam_v )
+//    {
+//      MAXTEMP = MINTEMP + 1;
+//    }
+//    else
+//    {
+//      MAXTEMP++;
+//    }
+//    infodisplay();
+//  }
 
-  M5.update();
 
   for (byte x = 0 ; x < speed_setting ; x++) // x < 2 Read both subpages
   {
@@ -394,10 +428,7 @@ void loop()
 
   uint16_t boxsize = min(M5.Lcd.width() / INTERPOLATED_ROWS, M5.Lcd.height() / INTERPOLATED_COLS);
   uint16_t boxWidth = M5.Lcd.width() / INTERPOLATED_ROWS;
-  //uint16_t boxWidth = 192 / INTERPOLATED_ROWS;
   uint16_t boxHeight = (M5.Lcd.height() - 31) / INTERPOLATED_COLS; // 31 for bottom info
-  //drawpixels(pixels, 24, INTERPOLATED_COLS, 8, 8, false);
-  //drawpixels(pixels_2, 48, 64, 5, 5, false);
   drawpixels(dest_2d, INTERPOLATED_ROWS, INTERPOLATED_COLS, boxWidth, boxHeight, false);
   max_v = MINTEMP;
   min_v = MAXTEMP;
@@ -417,9 +448,9 @@ void loop()
 
 
   M5.Lcd.setTextSize(2);
-  M5.Lcd.fillRect(164, 220, 75, 18, TFT_BLACK);  // clear max temp text
+  M5.Lcd.fillRect(164, 220, 75, 18, TFT_BLACK); // clear max temp text
   M5.Lcd.fillRect(60, 220, 200, 18, TFT_BLACK); // clear spot temp text
-    int icolor = 0;
+  int icolor = 0;
   //for (int icol = 0; icol <= 248;  icol++)
   //{
    // M5.Lcd.drawRect(36, 208, icol, 284 , camColors[icolor]);
@@ -444,9 +475,6 @@ void loop()
     M5.Lcd.setCursor(180, 94); // update spot temp text
     M5.Lcd.print(spot_v, 1);
     M5.Lcd.printf("C");
-    //M5.Lcd.drawCircle(160, 100, 6, TFT_WHITE);     // update center spot icon
-    //M5.Lcd.drawLine(160, 90, 160, 110, TFT_WHITE); // vertical line
-    //M5.Lcd.drawLine(150, 100, 170, 100, TFT_WHITE); // horizontal line
     M5.Lcd.drawCircle(160, 120, 6, TFT_WHITE);     // update center spot icon
     M5.Lcd.drawLine(160, 110, 160, 130, TFT_WHITE); // vertical line
     M5.Lcd.drawLine(150, 120, 170, 120, TFT_WHITE); // horizontal line
@@ -455,9 +483,16 @@ void loop()
   endTime = loopTime;
   fps = 1000 / (endTime - startTime);
   //M5.Lcd.fillRect(310, 209, 10, 12, TFT_BLACK); //Clear fps text area
-  M5.Lcd.fillRect(300, 209, 20, 12, TFT_BLACK); //Clear fps text area
+// M5.Lcd.fillRect(284, 209, 20, 12, TFT_BLACK);   //Clear fps text area
   M5.Lcd.setTextSize(1);
-  M5.Lcd.setCursor(284, 210);
+  M5.Lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+  M5.Lcd.setCursor(284, 204);
+  if (autoCapture) {
+    M5.Lcd.print("CAP:A");
+  } else {
+    M5.Lcd.print("CAP:M");
+  }
+  M5.Lcd.setCursor(284, 212);
   M5.Lcd.print("fps:" + String( fps ));
   M5.Lcd.setTextSize(1);
 
@@ -466,15 +501,20 @@ void loop()
 
 /***infodisplay()*****/
 void infodisplay(void) {
-  M5.Lcd.fillRect(0, 198, 320, 4, TFT_WHITE);
-  M5.Lcd.setTextColor(TFT_WHITE);
-  M5.Lcd.fillRect(284, 223, 320, 240, TFT_BLACK); //Clear MaxTemp area
+  int icolor = 0;
+  for (int icol = 0; icol <= 248;  icol++)
+  {
+    //彩色条
+    M5.Lcd.drawRect(36, 208, icol, 284 , camColors[icolor]);
+    icolor++;
+  }
+  M5.Lcd.fillRect(0, 194, 320, 2, TFT_WHITE);
+  M5.Lcd.setTextColor(TFT_WHITE, TFT_BLACK);
   M5.Lcd.setTextSize(2);
   M5.Lcd.setCursor(284, 222); //move to bottom right
   M5.Lcd.print(MAXTEMP , 1);  // update MAXTEMP
   M5.Lcd.print("C");
   M5.Lcd.setCursor(0, 222);  // update MINTEMP text
-  M5.Lcd.fillRect(0, 222, 36, 16, TFT_BLACK);
   M5.Lcd.print(MINTEMP , 1);
   M5.Lcd.print("C");
   M5.Lcd.setCursor(106, 224);
@@ -503,29 +543,25 @@ void drawpixels(float *p, uint8_t rows, uint8_t cols, uint8_t boxWidth, uint8_t 
     }
   }
 
-  int grX = 4;
-  int grY = 4;
+  int grX = 2;
+  int grY = 2;
   
-   for (int y = 0; y < rows; y++) 
+  for (int y = 0; y < rows; y++) 
+  {
+    for (int x = 0; x < cols; x++) 
     {
-      for (int x = 0; x < cols; x++) 
-        {
-                float val = 0;
-                if (((x%grX) == 0) && ((y%grY)==0))   
-                 {
-                for (int grx=0;grx<grX;grx++)
-                  for (int gry=0;gry<grY;gry++)
-                    {
-                      val += get_point(p, (rows), (cols), (x+grx), (y+gry));
-                    }
-                    val = (val)/(grX*grY);
-                 
-                  M5.Lcd.setCursor((boxWidth *x)+((boxWidth*grX)/3) + 2, (boxHeight *y)+((boxHeight*grY)/3) + 2); // update spot temp text
-                  M5.Lcd.print(val, 0);
-                  M5.Lcd.fillCircle((boxWidth *x)+((boxWidth*grX)/3), (boxHeight *y)+((boxHeight*grY)/3), 1, TFT_BLACK);
-                 }
-        }
-    } 
+      float val = 0;
+      if (((x%grX) == 0) && ((y%grY)==0))   
+      {
+        val = get_point(p, rows, cols, x, y);
+        M5.Lcd.setTextSize(0);
+        M5.Lcd.setTextColor(TFT_WHITE);            
+        M5.Lcd.setCursor((boxWidth *x)+((boxWidth*grX)/3) + 2, (boxHeight *y)+((boxHeight*grY)/3) + 2); // update spot temp text
+        M5.Lcd.print(val, 0);
+        M5.Lcd.fillCircle((boxWidth *x)+((boxWidth*grX)/3), (boxHeight *y)+((boxHeight*grY)/3), 1, TFT_BLACK);
+      }
+    }
+  } 
 
 }
 
@@ -544,7 +580,7 @@ void adjustClockfromNTP() {
   M5.Lcd.setTextSize(2);
   if (!strcmp(ssid,"")) {
     M5.Lcd.println("Connecting to the previous WiFiAP.");
-    M5.Lcd.println("If you don't connect to WiFi. Check ImageWatch.ino");
+    M5.Lcd.println("If you don't connect to WiFi. Check MLX90640.ino");
     WiFi.begin();
   } else {
     M5.Lcd.printf("Connentng to SSID:%s\n", ssid);
