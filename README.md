@@ -27,13 +27,14 @@ Edit MLX90640.ino and set the following items. Build after setting.
 
 # Usage
 - Take ScreenShot(BtnB)<br>
-- Change ScreenShot Mode<br>
-BtnA: Auto / Manual <br>
+- Change ScreenShot Mode(BtnA)<br>
+Auto / Manual <br>
 AutoMode:By default, screenshots are taken once every 15 seconds.
-- Reset Range(BtnA + BtnC)<br>
+- Reset Range(BtnB long press 3sec)<br>
 Resets the upper and lower values of the color bar.
 - Change Lower value(BtnA long press)
 - Change Upper value(BtnC long press)
+- Adjust Range(BtnA + BtnC)
 
 # Known Issue
 When using with M5Stack Fire, if you enable PSRAM, it may not work. In that case, please build after changing PSRAM disable.

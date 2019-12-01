@@ -25,15 +25,16 @@ MLX90640.inoのInitial Settingsエリアの下記項目を変更してからビ�
 - WiFi SSID and Passphrase
 - ntpServer's URL
 
-# Usage
+# 使い方
 - スクリーンショットを取る(BtnB)<br>
 - スクリーンショットモードを変更(BtnA)<br>
 Auto / Manual <br>
 AutoMode:スクリーンショットを15秒間隔で自動で保存するようになります。
-- レンジのリセット(BtnA + BtnC)<br>
+- レンジのリセット(BtnB 長押し 3秒)<br>
 カラーバーの上限値と下限値をリセット（20℃~50℃）にリセットします。
 - カラーバー下限値の変更(BtnA長押し)
 - カラーバー上限値の変更(BtnC長押し)
+- カラーバーのアジャスト(BtnA + BtnC)
 
 # 既知の不具合
 ビルドする時にM5Stack FireのPSRAMをEnableにすると動作しないことがあります。PSRAMはDisableにしてビルドしなおしてください。
